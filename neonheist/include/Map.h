@@ -17,12 +17,12 @@ enum TileType {
 
 class CityMap {
 public:
-    static const int MAP_SIZE = 20;
+    static const int MAP_SIZE = 30;
     int grid[MAP_SIZE][MAP_SIZE];
     int tileSize;
 
     CityMap() {
-        tileSize = 1920 / MAP_SIZE;
+        tileSize = 2880 / MAP_SIZE;
 
         for (int i = 0; i < MAP_SIZE; i++) {
             for (int j = 0; j < MAP_SIZE; j++) {

@@ -27,7 +27,8 @@ public:
     // ------------------------------------------------
     CityMap map;                        // the city grid
     Robber robber;                      // the player controlled character
-    std::vector<Police> policeUnits;    // all police on current level
+    std::vector<Police> policeUnits; 
+    std::vector<Bystander> bystanders;    // all police on current level
     std::vector<Treasure*> treasures;   // all treasures on current level
 
 
@@ -97,6 +98,8 @@ public:
     // police spawn on random STREET tiles
     // ------------------------------------------------
     void spawnPolice();
+
+    void spawnBystanders(); 
 
     // ------------------------------------------------
     // DRAWUI
