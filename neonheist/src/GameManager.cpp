@@ -1,39 +1,33 @@
+
 #include "GameManager.h"
 #include <iostream>
 #include <cmath>
 #include <utility>
+#include <algorithm>
 using namespace std;
 
-// screen constants - Surface Pro 2880x1920
 const int SCREEN_W = 2880;
 const int SCREEN_H = 1920;
-const int TILE_SIZE = 96;
-const int MAP_PX = 1920;
-const int SIDEBAR_X = 1920;
-const int SIDEBAR_W = 960;
 
-// constructor - sets starting values
-GameManager::GameManager() : robber(18 * TILE_SIZE, 1 * TILE_SIZE) {
+// constructor
+GameManager::GameManager() : robber(18 * 144, 1 * 144) {
     level = 1;
     gameOver = false;
     gameWon = false;
     alarmActive = false;
 
-    // sound will also be added in the constructor for game manager
     InitAudioDevice();
-    bgMusic = LoadMusicStream("assets/background.mp3");
-    alarmSound = LoadMusicStream("assets/alarm.mp3");
-    collectSound = LoadSound("assets/collect.mp3");
+    bgMusic     = LoadMusicStream("assets/background.mp3");
+    alarmSound  = LoadMusicStream("assets/alarm.mp3");
+    collectSound  = LoadSound("assets/collect.mp3");
     gameOverSound = LoadSound("assets/gameover.mp3");
-
-    // start bgm foran se
     PlayMusicStream(bgMusic);
 
-    // camera setup - follows robber, robber stays centered
-    camera.target = robber.worldPos;
-    camera.offset = {SCREEN_W / 2.0f, SCREEN_H / 2.0f};
+    // camera centers robber on full screen
+    camera.target   = robber.worldPos;
+    camera.offset   = {SCREEN_W / 2.0f, SCREEN_H / 2.0f};
     camera.rotation = 0.0f;
-    camera.zoom = 1.0f;
+    camera.zoom     = 1.0f;
 }
 
 // sets up each new level
@@ -43,11 +37,11 @@ void GameManager::startLevel() {
     treasures.clear();
 
     alarmActive = false;
-    AlarmSystem::getInstance().reset();
+    AlarmSystem::getInstance().reset();  // resets alarm timer
 
     map.regenerate();
 
-    // find safe street tile starting from top right going left
+    // spawn robber safely top right
     bool spawned = false;
     for (int x = CityMap::MAP_SIZE - 2; x > 0 && !spawned; x--) {
         for (int y = 1; y < 4 && !spawned; y++) {
@@ -63,10 +57,9 @@ void GameManager::startLevel() {
     spawnPolice();
 }
 
-// spawns 5 random treasures near BANK and PRESIDENT buildings only
+// spawns 5 random treasures near BANK and PRESIDENT only
 void GameManager::spawnTreasures() {
     vector<pair<int,int>> validSpots;
-
     for (int y = 1; y < CityMap::MAP_SIZE; y++) {
         for (int x = 0; x < CityMap::MAP_SIZE; x++) {
             if (map.grid[y][x] == DOOR) {
@@ -80,13 +73,14 @@ void GameManager::spawnTreasures() {
 
     int count = min((int)validSpots.size(), 5);
     for (int i = 0; i < count; i++) {
-        int idx = GetRandomValue(0, validSpots.size() - 1);
-        treasures.push_back(new Treasure(validSpots[idx].first, validSpots[idx].second));
+        int idx = GetRandomValue(0, (int)validSpots.size() - 1);
+        treasures.push_back(new Treasure(validSpots[idx].first,
+                                         validSpots[idx].second));
         validSpots.erase(validSpots.begin() + idx);
     }
 }
 
-// spawns police on random street tiles far from robber
+// spawns police far from robber
 void GameManager::spawnPolice() {
     int policeCount = min(level, 7);
     policeUnits.clear();
@@ -95,8 +89,7 @@ void GameManager::spawnPolice() {
     int robberTileY = (int)(robber.worldPos.y / map.tileSize);
 
     for (int i = 0; i < policeCount; i++) {
-        int px, py;
-        int attempts = 0;
+        int px, py, attempts = 0;
         do {
             px = GetRandomValue(1, CityMap::MAP_SIZE - 2);
             py = GetRandomValue(1, CityMap::MAP_SIZE - 2);
@@ -110,37 +103,30 @@ void GameManager::spawnPolice() {
     }
 }
 
-// called every frame - updates all game objects
+// called every frame
 void GameManager::update() {
-    if (gameOver || gameWon) return;
+    if (gameOver || gameWon) {
+        if (IsKeyPressed(KEY_R)) {
+            level = 1;
+            gameOver = false;
+            gameWon = false;
+            startLevel();
+        }
+        return;
+    }
 
-    // keep background music going
     UpdateMusicStream(bgMusic);
 
-    // declare wasActive FIRST before anything else
+    // alarm timer - THIS IS THE KEY FIX
     bool wasActive = alarmActive;
+    AlarmSystem::getInstance().update(GetFrameTime());  // counts down timer
+    alarmActive = AlarmSystem::getInstance().isActive(); // false when timer runs out
 
-    // now update the alarm timer
-    AlarmSystem::getInstance().update(GetFrameTime());
-    alarmActive = AlarmSystem::getInstance().isActive();
-
-    // start or stop alarm sound based on state change
-    if (alarmActive && !wasActive) {
-        PlayMusicStream(alarmSound);
-    } else if (!alarmActive && wasActive) {
-        StopMusicStream(alarmSound);
-    }
-
-    // keep alarm music going if active
-    if (alarmActive) {
-        UpdateMusicStream(alarmSound);
-    }
+    if (alarmActive && !wasActive)  PlayMusicStream(alarmSound);
+    else if (!alarmActive && wasActive) StopMusicStream(alarmSound);
+    if (alarmActive) UpdateMusicStream(alarmSound);
 
     robber.update(map);
-
-    for (auto& p : policeUnits) {
-        p.update(robber.worldPos, alarmActive, map);
-    }
 
     // camera smoothly follows robber
     camera.target = robber.worldPos;
@@ -152,123 +138,106 @@ void GameManager::update() {
     checkCollisions();
 }
 
-// checks all collisions every frame
+// checks all collisions
 void GameManager::checkCollisions() {
-    // police catches robber = game over
+    // police catches robber
     for (auto& p : policeUnits) {
         float dx = p.worldPos.x - robber.worldPos.x;
         float dy = p.worldPos.y - robber.worldPos.y;
         float distance = sqrt(dx*dx + dy*dy);
-        if (distance < 40.0f) {
+        if (distance < 50.0f) {
             gameOver = true;
             PlaySound(gameOverSound);
             return;
         }
     }
 
-    // robber touches treasure = collect it
+    // robber touches treasure
     for (auto t : treasures) {
         if (!t->collected && t->isNear(robber.worldPos, map.tileSize)) {
             t->collected = true;
             inventory.addItem(new Item("Diamond", 100));
-            PlaySound(collectSound); // phle collect sound ayega phir alarm bajega
+            PlaySound(collectSound);
             AlarmSystem::getInstance().trigger();
             alarmActive = true;
             cout << "Diamond collected! Alarm triggered!" << endl;
         }
     }
 
-    // only check level completion if treasures actually exist
+    // check level complete
     if (!treasures.empty()) {
         bool allCollected = true;
         for (auto t : treasures) {
-            if (!t->collected) {
-                allCollected = false;
-                break;
-            }
+            if (!t->collected) { allCollected = false; break; }
         }
         if (allCollected) {
             level++;
-            if (level > 10) {
-                gameWon = true;
-            } else {
-                startLevel();
-            }
+            if (level > 10) gameWon = true;
+            else startLevel();
         }
     }
 }
 
-// draws everything on screen
+// draws everything
 void GameManager::draw() {
+    // infinite ground color matching streets
+    ClearBackground({45, 45, 48, 255});
 
-    // everything inside BeginMode2D scrolls with camera
     BeginMode2D(camera);
-
         map.Draw(alarmActive);
-
-        for (auto t : treasures) {
-            t->Draw(map.tileSize);
-        }
-
+        for (auto t : treasures) t->Draw(map.tileSize);
         robber.Draw();
-
-        for (auto& p : policeUnits) {
-            p.Draw();
-        }
-
+        for (auto& p : policeUnits) p.Draw();
     EndMode2D();
 
-    // everything below here is fixed on screen - does not scroll
-
-    // red flash when alarm active
+    // alarm red flash - fixed on screen
     if (alarmActive) {
-        DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {255, 0, 0, 30});
+        float alpha = (sin(GetTime() * 8) + 1.0f) / 2.0f * 0.15f;
+        DrawRectangle(0, 0, SCREEN_W, SCREEN_H, Fade(RED, alpha));
         DrawText("!! ALARM !!", SCREEN_W/2 - 200, 20, 80, RED);
     }
 
-    // sidebar UI - always fixed on right side
+    // UI overlay
     drawUI();
 
     // game over screen
     if (gameOver) {
-        DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {0, 0, 0, 180});
-        DrawText("GAME OVER", SCREEN_W/2 - 200, SCREEN_H/2 - 60, 100, RED);
-        DrawText("Press R to restart", SCREEN_W/2 - 180, SCREEN_H/2 + 60, 50, WHITE);
+        DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {0, 0, 0, 200});
+        DrawText("WASTED", SCREEN_W/2 - 180, SCREEN_H/2 - 50, 100, RED);
+        DrawText("Press R to Restart", SCREEN_W/2 - 160, SCREEN_H/2 + 60, 40, RAYWHITE);
     }
 
     // win screen
     if (gameWon) {
-        DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {0, 0, 0, 180});
-        DrawText("YOU WIN!", SCREEN_W/2 - 150, SCREEN_H/2 - 60, 100, GREEN);
-        DrawText("All heists complete!", SCREEN_W/2 - 220, SCREEN_H/2 + 60, 50, WHITE);
+        DrawRectangle(0, 0, SCREEN_W, SCREEN_H, {0, 0, 0, 200});
+        DrawText("MASTER THIEF", SCREEN_W/2 - 250, SCREEN_H/2 - 50, 100, GOLD);
+        DrawText("Press R to Play Again", SCREEN_W/2 - 200, SCREEN_H/2 + 60, 40, WHITE);
     }
 }
 
-// draws the sidebar UI
+// draws UI overlay in top left corner
 void GameManager::drawUI() {
-    DrawRectangle(SIDEBAR_X, 0, SIDEBAR_W, SCREEN_H, BLACK);
-    DrawText("NEON HEIST", SIDEBAR_X + 80, 80, 60, YELLOW);
-    DrawText(TextFormat("Level: %d / 10", level), SIDEBAR_X + 80, 220, 45, WHITE);
+    // small dark panel top left
+    DrawRectangle(0, 0, 500, 220, {0, 0, 0, 170});
+    DrawText("NEON HEIST", 20, 15, 40, YELLOW);
+    DrawText(TextFormat("Level: %d / 10", level), 20, 65, 30, WHITE);
 
     if (alarmActive) {
-        DrawText("ALARM ACTIVE!", SIDEBAR_X + 80, 320, 45, RED);
+        DrawText("ALARM ACTIVE!", 20, 105, 30, RED);
     } else {
-        DrawText("All clear", SIDEBAR_X + 80, 320, 45, GREEN);
+        DrawText("All clear", 20, 105, 30, GREEN);
     }
 
-    DrawText(TextFormat("Diamonds: %d", inventory.getItemCount()), SIDEBAR_X + 80, 420, 45, SKYBLUE);
-    DrawText(TextFormat("Score: %d", inventory.getTotalValue()), SIDEBAR_X + 80, 520, 45, WHITE);
-    DrawText("Arrow keys to move", SIDEBAR_X + 80, SCREEN_H - 200, 35, GRAY);
-    DrawText("Steal from Bank &", SIDEBAR_X + 80, SCREEN_H - 150, 35, GRAY);
-    DrawText("President buildings", SIDEBAR_X + 80, SCREEN_H - 100, 35, GRAY);
+    DrawText(TextFormat("Diamonds: %d  Score: $%d",
+             inventory.getItemCount(),
+             inventory.getTotalValue()), 20, 145, 25, SKYBLUE);
 }
 
-// destructor - cleans up memory
+// destructor
 GameManager::~GameManager() {
     for (auto t : treasures) delete t;
     treasures.clear();
 
-    // sound bhi destroy hoga
     UnloadMusicStream(bgMusic);
     UnloadMusicStream(alarmSound);
     UnloadSound(collectSound);
