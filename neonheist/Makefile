@@ -1,0 +1,2 @@
+all:
+	"C:/raylib/w64devkit/bin/g++.exe" src/*.cpp -o HeistGame.exe -I "C:/Users/SURFACE/Downloads/raylib-6.0_win64_mingw-w64/include" -I "include" -L "C:/Users/SURFACE/Downloads/raylib-6.0_win64_mingw-w64/lib" -lraylib -lopengl32 -lgdi32 -lwinmm
